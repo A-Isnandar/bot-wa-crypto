@@ -221,7 +221,7 @@ Meta akan kirim notif setiap MCAP naik/turun *10%* dari pantauan terakhir (step:
                 message.reply('Aduh, error pas nyari data di DexScreener.');
             }
 
-        // FITUR 4: !stop
+// FITUR 4: !stop
         } else if (message.body.startsWith('!stop ')) {
             console.log('Menjalankan perintah !stop');
             const args = message.body.split(' ');
@@ -240,16 +240,51 @@ Meta akan kirim notif setiap MCAP naik/turun *10%* dari pantauan terakhir (step:
             } else {
                 message.reply('Token itu emang nggak lagi dipantau.');
             }
-        }
+            
+        // FITUR 5: !stopall
+        } else if (message.body === '!stopall') {
+            console.log('Menjalankan perintah !stopall');
+            
+            if (Object.keys(pantauJobs).length === 0) {
+                return message.reply('Memang nggak ada token yang lagi dipantau.');
+            }
+
+            pantauJobs = {}; 
+            saveDB(); 
+            message.reply('ðŸ”´ *SEMUA Pemantauan Dihentikan!* Database pantauan sudah dikosongkan.');
+        // KURUNG KURAWAL YANG TADI SALAH UDAH DIHAPUS DARI SINI
+
+        // FITUR 6: !list
+        } else if (message.body === '!list') {
+            console.log('Menjalankan perintah !list');
+            const jobKeys = Object.keys(pantauJobs);
+
+            if (jobKeys.length === 0) {
+                return message.reply('Belum ada token yang lagi dipantau.');
+            }
+
+            let replyMsg = `ðŸ”Ž *Daftar Token Dipantau (${jobKeys.length}):*\n\n`;
+
+            jobKeys.forEach((tokenAddress, index) => {
+                const job = pantauJobs[tokenAddress];
+                replyMsg += `${index + 1}. *${job.tokenSymbol}* (${job.tokenName})\n`;
+                replyMsg += `   Chain: \`${job.chain}\`\n`;
+                replyMsg += `   Alamat: \`${job.tokenAddress}\`\n`;
+                // replyMsg += `   MCap Awal: $${job.startMcap.toLocaleString('en-US')}\n`; 
+                replyMsg += `\n`; 
+            });
+
+            message.reply(replyMsg);
+        } // <--- KURUNG INI SEKARANG BENAR MENUTUP BLOK if (chat.isGroup)
 
     // --- Logika untuk CHAT PRIBADI (PM) ---
-    } else {
+    } else { 
         if (message.body === '!ping') {
             message.reply('Pong!');
         }
+        // Kalo mau nambah perintah PM lain, taruh di sini
     }
 }); // --- AKHIR DARI LISTENER UTAMA ---
-
 
 // --- (MESIN PEMANTAU - INI DIA PERBAIKAN TOTALNYA) ---
 
