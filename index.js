@@ -6,207 +6,278 @@ const fs = require('fs'); // Kita butuh 'fs' buat nyimpen database
 
 // --- (Database Pemantau) ---
 const DB_FILE = './pantau_db.json';
-let pantauJobs = {}; 
+let pantauJobs = {};
 const PANTAU_INTERVAL = 20000; // 20 detik
 
 function loadDB() {
-    try {
-        if (fs.existsSync(DB_FILE)) {
-            const data = fs.readFileSync(DB_FILE);
-            pantauJobs = JSON.parse(data);
-            console.log('Database pemantau berhasil di-load.');
-        } else {
-            pantauJobs = {};
-            console.log('Database pemantau baru dibuat.');
-        }
-    } catch (err) {
-        console.error('Gagal load DB pemantau:', err);
-        pantauJobs = {};
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const data = fs.readFileSync(DB_FILE);
+      pantauJobs = JSON.parse(data);
+      console.log('Database pemantau berhasil di-load.');
+    } else {
+      pantauJobs = {};
+      console.log('Database pemantau baru dibuat.');
     }
+  } catch (err) {
+    console.error('Gagal load DB pemantau:', err);
+    pantauJobs = {};
+  }
 }
 
 function saveDB() {
-    try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(pantauJobs, null, 2));
-    } catch (err) {
-        console.error('Gagal simpen DB pemantau:', err);
-    }
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(pantauJobs, null, 2));
+  } catch (err) {
+    console.error('Gagal simpen DB pemantau:', err);
+  }
 }
 // --- (AKHIR Database) ---
 
+// Fungsi helper buat format angka jadi mata uang
+function formatCurrency(value, currencyCode) {
+  // Tentukan opsi berdasarkan currency code
+  let options = {
+    maximumFractionDigits: 6, // Default banyak desimal
+    minimumFractionDigits: 2,
+  };
 
-console.log("Mencoba menjalankan bot...");
+  // Style khusus buat mata uang umum
+  if (
+    ['usd', 'idr', 'eur', 'gbp', 'jpy'].includes(currencyCode.toLowerCase())
+  ) {
+    options.style = 'currency';
+    options.currency = currencyCode.toUpperCase();
+    // Atur desimal spesifik kalo perlu
+    if (currencyCode.toLowerCase() === 'idr') {
+      options.minimumFractionDigits = 0; // Rupiah gak pake desimal
+      options.maximumFractionDigits = 0;
+    } else {
+      options.minimumFractionDigits = 2;
+      options.maximumFractionDigits = 2; // USD, EUR dll pake 2 desimal
+    }
+  } else {
+    // Kalo bukan fiat umum (kemungkinan crypto), tampilkan lebih banyak desimal
+    options.maximumFractionDigits = 8;
+  }
+
+  try {
+    // Coba format pake style currency dulu kalo ada
+    if (options.style === 'currency') {
+      return new Intl.NumberFormat(
+        currencyCode.toLowerCase() === 'idr' ? 'id-ID' : 'en-US',
+        options
+      ).format(value);
+    } else {
+      // Kalo bukan, format angka biasa aja
+      return new Intl.NumberFormat('en-US', options).format(value);
+    }
+  } catch (e) {
+    // Fallback kalo error formatting
+    return value.toFixed(6);
+  }
+} // --- AKHIR fungsi helper ---
+
+console.log('Mencoba menjalankan bot...');
 
 const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    }
+  authStrategy: new LocalAuth(),
+  puppeteer: {
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  },
 });
 
 client.on('qr', (qr) => {
-    console.log('QR Diterima, silahkan scan:');
-    qrcode.generate(qr, { small: true });
+  console.log('QR Diterima, silahkan scan:');
+  qrcode.generate(qr, { small: true });
 });
 
 client.on('ready', () => {
-    console.log('Bot sudah online dan siap tempur!');
-    
-    // Load database & Nyalain Mesin
-    loadDB();
-    startPantauEngine();
+  console.log('Bot sudah online dan siap tempur!');
+
+  // Load database & Nyalain Mesin
+  loadDB();
+  startPantauEngine();
 });
 
 // --- LISTENER UTAMA ---
 client.on('message', async (message) => {
-    if (!message.body || !message.from) return; 
+  if (!message.body || !message.from) return;
 
-    console.log(`[PESAN MASUK] Dari: ${message.from} | Isi: ${message.body}`);
-    const chat = await message.getChat();
+  console.log(`[PESAN MASUK] Dari: ${message.from} | Isi: ${message.body}`);
+  const chat = await message.getChat();
 
-    if (chat.isGroup) {
-        
-        // FITUR 1: Tag "Silent"
-        if (message.body.startsWith('#')) {
-            console.log('Menjalankan perintah Tag #');
-            const firstSpaceIndex = message.body.indexOf(' ');
+  if (chat.isGroup) {
+    // FITUR 1: Tag "Silent"
+    if (message.body.startsWith('#')) {
+      console.log('Menjalankan perintah Tag #');
+      const firstSpaceIndex = message.body.indexOf(' ');
 
-            if (firstSpaceIndex === -1) {
-                 console.log('Perintah # dibatalkan, format salah (harus ada spasi).');
-                 return; 
-            }
-            const textToSend = message.body.substring(firstSpaceIndex + 1).trim(); 
-            if (textToSend.length === 0) {
-                console.log('Perintah # dibatalkan, tidak ada teks setelah spasi.');
-                return; 
-            }
+      if (firstSpaceIndex === -1) {
+        console.log('Perintah # dibatalkan, format salah (harus ada spasi).');
+        return;
+      }
+      const textToSend = message.body.substring(firstSpaceIndex + 1).trim();
+      if (textToSend.length === 0) {
+        console.log('Perintah # dibatalkan, tidak ada teks setelah spasi.');
+        return;
+      }
 
-            let mentions = [];
-            for (let participant of chat.participants) {
-                mentions.push(participant.id._serialized);
-            }
-            await chat.sendMessage(textToSend, { mentions });
+      let mentions = [];
+      for (let participant of chat.participants) {
+        mentions.push(participant.id._serialized);
+      }
+      await chat.sendMessage(textToSend, { mentions });
 
-            try {
-                await message.react('ðŸ’¦'); // (Emoji kode lu)
-            } catch (e) {
-                console.log('Gagal react, mungkin nomor bot-nya kena limit.');
-            }
-            console.log('Berhasil tag silent!');
-        
-        // FITUR 2: Cek Harga Crypto
-        } else if (message.body.startsWith('!cek ')) {
-            console.log('Menjalankan perintah !cek crypto');
-            const query = message.body.split(' ')[1]?.toLowerCase().trim();
-            
-            if (!query) {
-                message.reply('Mau cek koin apa? \nContoh: `!cek bitcoin` atau `!cek arb`');
-                return;
-            }
+      try {
+        await message.react('ðŸ’¦'); // (Emoji kode lu)
+      } catch (e) {
+        console.log('Gagal react, mungkin nomor bot-nya kena limit.');
+      }
+      console.log('Berhasil tag silent!');
 
-            try {
-                const searchResponse = await axios.get(`https://api.coingecko.com/api/v3/search?query=${query}`);
-                
-                if (!searchResponse.data.coins || searchResponse.data.coins.length === 0) {
-                    message.reply(`Damn, gak nemu koin yang namanya mirip *'${query}'* ðŸ˜­.`); 
-                    return; 
-                }
+      // FITUR 2: Cek Harga Crypto
+    } else if (message.body.startsWith('!cek ')) {
+      console.log('Menjalankan perintah !cek crypto');
+      const query = message.body.split(' ')[1]?.toLowerCase().trim();
 
-                const coinId = searchResponse.data.coins[0].id;
-                const coinName = searchResponse.data.coins[0].name;
-                const priceResponse = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd,idr&include_24hr_change=true`);
-                
-                if (priceResponse.data[coinId]) {
-                    const priceUSD = priceResponse.data[coinId].usd;
-                    const priceIDR = priceResponse.data[coinId].idr;
-                    const change24h = priceResponse.data[coinId].usd_24h_change;
+      if (!query) {
+        message.reply(
+          'Mau cek koin apa? \nContoh: `!cek bitcoin` atau `!cek arb`'
+        );
+        return;
+      }
 
-                    const formatIDR = new Intl.NumberFormat('id-ID', { 
-                        style: 'currency', 
-                        currency: 'IDR',
-                        maximumFractionDigits: 10 
-                    }).format(priceIDR);
-                    
-                    const formatUSD = new Intl.NumberFormat('en-US', { 
-                        style: 'currency', 
-                        currency: 'USD',
-                        maximumFractionDigits: 10 
-                    }).format(priceUSD);
+      try {
+        const searchResponse = await axios.get(
+          `https://api.coingecko.com/api/v3/search?query=${query}`
+        );
 
-                    const changeEmoji = change24h > 0 ? 'ðŸŸ¢' : 'ðŸ”´'; 
-                    const changePercent = change24h.toFixed(2);
+        if (
+          !searchResponse.data.coins ||
+          searchResponse.data.coins.length === 0
+        ) {
+          message.reply(
+            `Damn, gak nemu koin yang namanya mirip *'${query}'* ðŸ˜­.`
+          );
+          return;
+        }
 
-                    let replyMsg = `ðŸ’¦ *Update Harga ${coinName} (${query.toUpperCase()})* NowðŸ’¦\n\n`; 
-                    replyMsg += `USD: *${formatUSD}*\n`;
-                    replyMsg += `IDR: *${formatIDR}*\n`;
-                    replyMsg += `24j: *${changePercent}%* ${changeEmoji}`;
-                    
-                    message.reply(replyMsg);
-                } else {
-                    message.reply(`Gak nemu harga buat koin *'${query}'* ðŸ˜­.`);
-                }
-            } catch (error) {
-                console.error('Error pas ambil data crypto:', error.message);
-                message.reply('Damn, lagi ada masalah ngambil data ke CoinGecko. Coba bentar lagi.');
-            }
-        
-        // FITUR 3: !pantau (LOGIKA BARU)
-        } else if (message.body.startsWith('!pantau ')) {
-            console.log('Menjalankan perintah !pantau');
-            const args = message.body.split(' '); 
-            
-            if (args.length !== 3) {
-                return message.reply('Format salah ðŸ˜­.\nContoh: `!pantau sol ALAMAT_TOKEN`');
-            }
+        const coinId = searchResponse.data.coins[0].id;
+        const coinName = searchResponse.data.coins[0].name;
+        const priceResponse = await axios.get(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd,idr&include_24hr_change=true`
+        );
 
-            const chain = args[1].toLowerCase();
-            const tokenAddress = args[2];
-            const chatId = message.from;
+        if (priceResponse.data[coinId]) {
+          const priceUSD = priceResponse.data[coinId].usd;
+          const priceIDR = priceResponse.data[coinId].idr;
+          const change24h = priceResponse.data[coinId].usd_24h_change;
 
-            if (pantauJobs[tokenAddress]) {
-                return message.reply(`Token \`${tokenAddress}\` udah dipantau di grup ini.`);
-            }
+          const formatIDR = new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            maximumFractionDigits: 10,
+          }).format(priceIDR);
 
-            await message.reply(`ðŸ’¦ Mencari info token \`${tokenAddress}\` di chain \`${chain}\`...`);
+          const formatUSD = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD',
+            maximumFractionDigits: 10,
+          }).format(priceUSD);
 
-            try {
-                // Endpoint !pantau (search) UDAH BENER
-                const searchUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
-                const response = await axios.get(searchUrl);
+          const changeEmoji = change24h > 0 ? 'ðŸŸ¢' : 'ðŸ”´';
+          const changePercent = change24h.toFixed(2);
 
-                if (!response.data.pairs || response.data.pairs.length === 0) {
-                    return message.reply('Gak nemu pair buat token itu. Cek lagi alamatnya ðŸ˜­.');
-                }
-                
-                const validPairs = response.data.pairs.filter(p => p.chainId === chain);
-                if (validPairs.length === 0) {
-                    return message.reply(`Gak nemu pair di chain \`${chain}\`. Coba cek chain lain (cth: eth, bsc) ðŸ˜­.`);
-                }
+          let replyMsg = `ðŸ’¦ *Update Harga ${coinName} (${query.toUpperCase()})* NowðŸ’¦\n\n`;
+          replyMsg += `USD: *${formatUSD}*\n`;
+          replyMsg += `IDR: *${formatIDR}*\n`;
+          replyMsg += `24j: *${changePercent}%* ${changeEmoji}`;
 
-                const pair = validPairs.sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0];
-                
-                const startMcap = parseFloat(pair.marketCap);
-                if (!startMcap || startMcap === 0) {
-                    return message.reply('Gak bisa dapet Market Cap (mungkin token baru/terlalu kecil). Gagal memantau ðŸ˜­.');
-                }
+          message.reply(replyMsg);
+        } else {
+          message.reply(`Gak nemu harga buat koin *'${query}'* ðŸ˜­.`);
+        }
+      } catch (error) {
+        console.error('Error pas ambil data crypto:', error.message);
+        message.reply(
+          'Damn, lagi ada masalah ngambil data ke CoinGecko. Coba bentar lagi.'
+        );
+      }
 
-                const stepSize = startMcap * 0.10; // 10% step
+      // FITUR 3: !pantau (LOGIKA BARU)
+    } else if (message.body.startsWith('!pantau ')) {
+      console.log('Menjalankan perintah !pantau');
+      const args = message.body.split(' ');
 
-                pantauJobs[tokenAddress] = {
-                    chatId: chatId,
-                    pairAddress: pair.pairAddress,
-                    tokenAddress: tokenAddress,
-                    tokenName: pair.baseToken.name,
-                    tokenSymbol: pair.baseToken.symbol,
-                    chain: chain,
-                    stepSize: stepSize, // Simpen nilai 10%-nya
-                    lastAlertedMcap: startMcap, // Simpen harga MCap terakhir
-                    startPriceUsd: parseFloat(pair.priceUsd) // Simpen harga awal
-                };
-                
-                saveDB(); 
+      if (args.length !== 3) {
+        return message.reply(
+          'Format salah ðŸ˜­.\nContoh: `!pantau sol ALAMAT_TOKEN`'
+        );
+      }
 
-                message.reply(`ðŸŸ¢ *Pemantauan Dimulai!*
+      const chain = args[1].toLowerCase();
+      const tokenAddress = args[2];
+      const chatId = message.from;
+
+      if (pantauJobs[tokenAddress]) {
+        return message.reply(
+          `Token \`${tokenAddress}\` udah dipantau di grup ini.`
+        );
+      }
+
+      await message.reply(
+        `ðŸ’¦ Mencari info token \`${tokenAddress}\` di chain \`${chain}\`...`
+      );
+
+      try {
+        // Endpoint !pantau (search) UDAH BENER
+        const searchUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+        const response = await axios.get(searchUrl);
+
+        if (!response.data.pairs || response.data.pairs.length === 0) {
+          return message.reply(
+            'Gak nemu pair buat token itu. Cek lagi alamatnya ðŸ˜­.'
+          );
+        }
+
+        const validPairs = response.data.pairs.filter(
+          (p) => p.chainId === chain
+        );
+        if (validPairs.length === 0) {
+          return message.reply(
+            `Gak nemu pair di chain \`${chain}\`. Coba cek chain lain (cth: eth, bsc) ðŸ˜­.`
+          );
+        }
+
+        const pair = validPairs.sort(
+          (a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0)
+        )[0];
+
+        const startMcap = parseFloat(pair.marketCap);
+        if (!startMcap || startMcap === 0) {
+          return message.reply(
+            'Gak bisa dapet Market Cap (mungkin token baru/terlalu kecil). Gagal memantau ðŸ˜­.'
+          );
+        }
+
+        const stepSize = startMcap * 0.1; // 10% step
+
+        pantauJobs[tokenAddress] = {
+          chatId: chatId,
+          pairAddress: pair.pairAddress,
+          tokenAddress: tokenAddress,
+          tokenName: pair.baseToken.name,
+          tokenSymbol: pair.baseToken.symbol,
+          chain: chain,
+          stepSize: stepSize, // Simpen nilai 10%-nya
+          lastAlertedMcap: startMcap, // Simpen harga MCap terakhir
+          startPriceUsd: parseFloat(pair.priceUsd), // Simpen harga awal
+        };
+
+        saveDB();
+
+        message.reply(`ðŸŸ¢ *Pemantauan Dimulai!*
 
 Token: *${pair.baseToken.name} (${pair.baseToken.symbol})*
 Chain: \`${chain}\`
@@ -214,164 +285,327 @@ Pair: \`${pair.pairAddress}\`
 MCap Awal: *$${startMcap.toLocaleString('en-US')}*
 Harga Awal: *$${pair.priceUsd}*
 
-Meta akan kirim notif setiap MCAP naik/turun *10%* dari pantauan terakhir (step: *$${stepSize.toLocaleString('en-US')}*).`);
+Meta akan kirim notif setiap MCAP naik/turun *10%* dari pantauan terakhir (step: *$${stepSize.toLocaleString(
+          'en-US'
+        )}*).`);
+      } catch (error) {
+        console.error('Error di !pantau:', error.message);
+        message.reply('Aduh, error pas nyari data di DexScreener.');
+      }
 
-            } catch (error) {
-                console.error('Error di !pantau:', error.message);
-                message.reply('Aduh, error pas nyari data di DexScreener.');
-            }
+      // FITUR 4: !stop
+    } else if (message.body.startsWith('!stop ')) {
+      console.log('Menjalankan perintah !stop');
+      const args = message.body.split(' ');
 
-// FITUR 4: !stop
-        } else if (message.body.startsWith('!stop ')) {
-            console.log('Menjalankan perintah !stop');
-            const args = message.body.split(' ');
-            
-            if (args.length !== 2) {
-                return message.reply('Format salah ðŸ˜­.\nContoh: `!stop ALAMAT_TOKEN`');
-            }
+      if (args.length !== 2) {
+        return message.reply(
+          'Format salah ðŸ˜­.\nContoh: `!stop ALAMAT_TOKEN`'
+        );
+      }
 
-            const tokenAddress = args[1];
+      const tokenAddress = args[1];
 
-            if (pantauJobs[tokenAddress]) {
-                const jobName = pantauJobs[tokenAddress].tokenSymbol;
-                delete pantauJobs[tokenAddress]; 
-                saveDB(); 
-                message.reply(`ðŸ”´ *Pemantauan Dihentikan* untuk ${jobName} (\`${tokenAddress}\`).`);
+      if (pantauJobs[tokenAddress]) {
+        const jobName = pantauJobs[tokenAddress].tokenSymbol;
+        delete pantauJobs[tokenAddress];
+        saveDB();
+        message.reply(
+          `ðŸ”´ *Pemantauan Dihentikan* untuk ${jobName} (\`${tokenAddress}\`).`
+        );
+      } else {
+        message.reply('Token itu emang nggak lagi dipantau.');
+      }
+
+      // FITUR 5: !stopall
+    } else if (message.body === '!stopall') {
+      console.log('Menjalankan perintah !stopall');
+
+      if (Object.keys(pantauJobs).length === 0) {
+        return message.reply('Memang nggak ada token yang lagi dipantau.');
+      }
+
+      pantauJobs = {};
+      saveDB();
+      message.reply(
+        'ðŸ”´ *SEMUA Pemantauan Dihentikan!* Database pantauan sudah dikosongkan.'
+      );
+      // KURUNG KURAWAL YANG TADI SALAH UDAH DIHAPUS DARI SINI
+
+      // FITUR 6: !list
+    } else if (message.body === '!list') {
+      console.log('Menjalankan perintah !list');
+      const jobKeys = Object.keys(pantauJobs);
+
+      if (jobKeys.length === 0) {
+        return message.reply('Belum ada token yang lagi dipantau.');
+      }
+
+      let replyMsg = `ðŸ”Ž *Daftar Token Dipantau (${jobKeys.length}):*\n\n`;
+
+      jobKeys.forEach((tokenAddress, index) => {
+        const job = pantauJobs[tokenAddress];
+        replyMsg += `${index + 1}. *${job.tokenSymbol}* (${job.tokenName})\n`;
+        replyMsg += `   Chain: \`${job.chain}\`\n`;
+        replyMsg += `   Alamat: \`${job.tokenAddress}\`\n`;
+        // replyMsg += `   MCap Awal: $${job.startMcap.toLocaleString('en-US')}\n`;
+        replyMsg += `\n`;
+      });
+
+      message.reply(replyMsg);
+    } // <--- KURUNG INI SEKARANG BENAR MENUTUP BLOK if (chat.isGroup)
+    // FITUR 7: Konversi Mata Uang / Koin
+    // Cek format: !<angka> ...
+    else if (
+      message.body.startsWith('!') &&
+      !isNaN(parseFloat(message.body.substring(1).split(' ')[0]))
+    ) {
+      console.log('Menjalankan perintah konversi');
+
+      try {
+        const parts = message.body.substring(1).split(' '); // Hilangkan '!', split by spasi
+        // parts = ["1", "eth", "to", "idr"] atau ["0.2", "sol"]
+
+        const amount = parseFloat(parts[0]);
+        if (isNaN(amount) || amount <= 0) {
+          return message.reply('Jumlah harus angka positif, bro.');
+        }
+
+        const coinA_input = parts[1]?.toLowerCase();
+        if (!coinA_input) {
+          return message.reply(
+            'Format salah. Contoh: `!1 eth to idr` atau `!0.2 sol`'
+          );
+        }
+
+        // Cek ada kata "to" nggak
+        const toIndex = parts.indexOf('to');
+        let coinB_input = null;
+        let targetCurrencies = 'usd'; // Default selalu minta USD
+
+        if (toIndex > 1 && parts.length > toIndex + 1) {
+          // Ada format A to B
+          coinB_input = parts[toIndex + 1].toLowerCase();
+          targetCurrencies = `${coinB_input},usd`; // Minta target B dan USD
+        } else if (toIndex !== -1) {
+          // Ada 'to' tapi format salah (cth: !1 eth to)
+          return message.reply('Format salah. Contoh: `!1 eth to idr`');
+        }
+
+        // Mapping ID CoinGecko (tambahin sesuai kebutuhan)
+        const coinMap = {
+          btc: 'bitcoin',
+          eth: 'ethereum',
+          sol: 'solana',
+          bnb: 'binancecoin',
+          usdc: 'usd-coin',
+          usdt: 'tether',
+          idr: 'idr',
+          usd: 'usd', // Untuk target fiat
+          // Tambahin koin/fiat lain di sini
+        };
+
+        const coinA_id = coinMap[coinA_input] || coinA_input; // Coba mapping, kalo gak ada pake input asli
+
+        // Panggil API CoinGecko
+        const apiURL = `https://api.coingecko.com/api/v3/simple/price?ids=${coinA_id}&vs_currencies=${targetCurrencies}`;
+        const response = await axios.get(apiURL);
+
+        // Cek hasilnya ada gak
+        if (!response.data || !response.data[coinA_id]) {
+          // Coba cari pake search kalo gak ketemu langsung
+          const searchResponse = await axios.get(
+            `https://api.coingecko.com/api/v3/search?query=${coinA_input}`
+          );
+          if (
+            !searchResponse.data.coins ||
+            searchResponse.data.coins.length === 0
+          ) {
+            return message.reply(
+              `Gak nemu koin/mata uang '${coinA_input}' ðŸ˜­.`
+            );
+          }
+          const foundCoinId = searchResponse.data.coins[0].id;
+          const retryResponse = await axios.get(
+            `https://api.coingecko.com/api/v3/simple/price?ids=${foundCoinId}&vs_currencies=${targetCurrencies}`
+          );
+          if (!retryResponse.data || !retryResponse.data[foundCoinId]) {
+            return message.reply(
+              `Gak nemu harga konversi buat '${coinA_input}' ðŸ˜­.`
+            );
+          }
+          // Kalo retry berhasil, pake data ini
+          const coinData = retryResponse.data[foundCoinId];
+          const coinName = searchResponse.data.coins[0].name;
+          const coinSymbol = searchResponse.data.coins[0].symbol;
+
+          // Hitung hasil konversi
+          const valueUSD = coinData.usd * amount;
+
+          let replyMsg = `${amount} ${coinName} (${coinSymbol.toLowerCase()}):\n`;
+          replyMsg += `${formatCurrency(valueUSD, 'usd')} usd`;
+
+          if (coinB_input) {
+            const coinB_id = coinMap[coinB_input] || coinB_input;
+            const valueCoinB = coinData[coinB_id] * amount;
+            if (!isNaN(valueCoinB)) {
+              replyMsg += `\n${formatCurrency(
+                valueCoinB,
+                coinB_id
+              )} ${coinB_id}`;
             } else {
-                message.reply('Token itu emang nggak lagi dipantau.');
+              replyMsg += `\n(Gagal konversi ke ${coinB_input})`;
             }
-            
-        // FITUR 5: !stopall
-        } else if (message.body === '!stopall') {
-            console.log('Menjalankan perintah !stopall');
-            
-            if (Object.keys(pantauJobs).length === 0) {
-                return message.reply('Memang nggak ada token yang lagi dipantau.');
+          }
+          message.reply(replyMsg);
+        } else {
+          // Kalo langsung ketemu
+          const coinData = response.data[coinA_id];
+
+          // Hitung hasil konversi
+          const valueUSD = coinData.usd * amount;
+
+          let replyMsg = `${amount} ${
+            coinA_id.charAt(0).toUpperCase() + coinA_id.slice(1)
+          } (${coinA_input}):\n`; // Tampilkan nama yg lebih baik kalo bisa
+          replyMsg += `${formatCurrency(valueUSD, 'usd')} usd`;
+
+          if (coinB_input) {
+            const coinB_id = coinMap[coinB_input] || coinB_input;
+            const valueCoinB = coinData[coinB_id] * amount;
+            if (!isNaN(valueCoinB)) {
+              replyMsg += `\n${formatCurrency(
+                valueCoinB,
+                coinB_id
+              )} ${coinB_id}`;
+            } else {
+              replyMsg += `\n(Gagal konversi ke ${coinB_input})`;
             }
-
-            pantauJobs = {}; 
-            saveDB(); 
-            message.reply('ðŸ”´ *SEMUA Pemantauan Dihentikan!* Database pantauan sudah dikosongkan.');
-        // KURUNG KURAWAL YANG TADI SALAH UDAH DIHAPUS DARI SINI
-
-        // FITUR 6: !list
-        } else if (message.body === '!list') {
-            console.log('Menjalankan perintah !list');
-            const jobKeys = Object.keys(pantauJobs);
-
-            if (jobKeys.length === 0) {
-                return message.reply('Belum ada token yang lagi dipantau.');
-            }
-
-            let replyMsg = `ðŸ”Ž *Daftar Token Dipantau (${jobKeys.length}):*\n\n`;
-
-            jobKeys.forEach((tokenAddress, index) => {
-                const job = pantauJobs[tokenAddress];
-                replyMsg += `${index + 1}. *${job.tokenSymbol}* (${job.tokenName})\n`;
-                replyMsg += `   Chain: \`${job.chain}\`\n`;
-                replyMsg += `   Alamat: \`${job.tokenAddress}\`\n`;
-                // replyMsg += `   MCap Awal: $${job.startMcap.toLocaleString('en-US')}\n`; 
-                replyMsg += `\n`; 
-            });
-
-            message.reply(replyMsg);
-        } // <--- KURUNG INI SEKARANG BENAR MENUTUP BLOK if (chat.isGroup)
+          }
+          message.reply(replyMsg);
+        }
+      } catch (error) {
+        console.error('Error di perintah konversi:', error.message);
+        // Cek error spesifik dari CoinGecko (cth: invalid vs_currency)
+        if (
+          error.response &&
+          error.response.data &&
+          error.response.data.error
+        ) {
+          message.reply(`Error dari CoinGecko: ${error.response.data.error}`);
+        } else {
+          message.reply(
+            'Aduh, error pas ngitung konversi. Coba cek format/nama koin.'
+          );
+        }
+      }
+    } // <--- Akhir dari blok konversi
 
     // --- Logika untuk CHAT PRIBADI (PM) ---
-    } else { 
-        if (message.body === '!ping') {
-            message.reply('Pong!');
-        }
-        // Kalo mau nambah perintah PM lain, taruh di sini
+  } else {
+    if (message.body === '!ping') {
+      message.reply('Pong!');
     }
+    // Kalo mau nambah perintah PM lain, taruh di sini
+  }
 }); // --- AKHIR DARI LISTENER UTAMA ---
 
 // --- (MESIN PEMANTAU - INI DIA PERBAIKAN TOTALNYA) ---
 
 async function checkAlerts() {
-    const jobKeys = Object.keys(pantauJobs);
-    if (jobKeys.length === 0) {
-        return; // Gak ada kerjaan
-    }
+  const jobKeys = Object.keys(pantauJobs);
+  if (jobKeys.length === 0) {
+    return; // Gak ada kerjaan
+  }
 
-    console.log(`[Pantau Engine] Menjalankan pengecekan untuk ${jobKeys.length} token...`);
+  console.log(
+    `[Pantau Engine] Menjalankan pengecekan untuk ${jobKeys.length} token...`
+  );
 
-    // Loop setiap job SATU PER SATU
-    for (const tokenAddress of jobKeys) {
-        try {
-            const job = pantauJobs[tokenAddress];
-            if (!job) continue; 
+  // Loop setiap job SATU PER SATU
+  for (const tokenAddress of jobKeys) {
+    try {
+      const job = pantauJobs[tokenAddress];
+      if (!job) continue;
 
-            // 1. BUAT URL YANG BENAR (SATU PER SATU)
-            // API-nya butuh chain DAN pair address
-            const url = `https://api.dexscreener.com/latest/dex/pairs/${job.chain}/${job.pairAddress}`;
-            
-            // 2. Tembak API
-            const response = await axios.get(url);
-            
-            // Cek data balikan (API ini balikin 'pair', bukan 'pairs')
-            if (!response.data || !response.data.pair) {
-                console.warn(`[Pantau Engine] Data pair tidak valid dari API untuk ${job.tokenSymbol}. Skipping.`);
-                continue;
-            }
+      // 1. BUAT URL YANG BENAR (SATU PER SATU)
+      // API-nya butuh chain DAN pair address
+      const url = `https://api.dexscreener.com/latest/dex/pairs/${job.chain}/${job.pairAddress}`;
 
-            const pairData = response.data.pair;
-            
-            const currentMcap = parseFloat(pairData.marketCap);
-            const currentPriceUsd = parseFloat(pairData.priceUsd);
-            
-            if (!currentMcap || isNaN(currentMcap) || isNaN(currentPriceUsd)) {
-                console.warn(`[Pantau Engine] Data MCap/Harga tidak valid untuk ${job.tokenSymbol}. Skipping.`);
-                continue;
-            }
+      // 2. Tembak API
+      const response = await axios.get(url);
 
-            // 3. Cek selisih dari MCap terakhir
-            const mcapDifference = currentMcap - job.lastAlertedMcap;
-            
-            // 4. Cek apakah selisih (absolut) >= 10% (stepSize)
-            if (Math.abs(mcapDifference) >= job.stepSize) {
-                
-                // --- WAKTUNYA NOTIFIKASI! ---
-                const trend = mcapDifference > 0 ? 'ðŸŸ¢ NAIK' : 'ðŸ”´ TURUN';
-                
-                const percentChangeFromStart = ((currentPriceUsd - job.startPriceUsd) / job.startPriceUsd) * 100;
+      // Cek data balikan (API ini balikin 'pair', bukan 'pairs')
+      if (!response.data || !response.data.pair) {
+        console.warn(
+          `[Pantau Engine] Data pair tidak valid dari API untuk ${job.tokenSymbol}. Skipping.`
+        );
+        continue;
+      }
 
-                let notifMsg = `ðŸ’¦ *HARGA* ${job.tokenSymbol} ${trend} ðŸ’¦\n\n`;
-                notifMsg += `Harga: *$${currentPriceUsd}*\n`;
-                notifMsg += `MCap: *$${currentMcap.toLocaleString('en-US')}*\n\n`;
-                notifMsg += `(Perubahan >10% dari pantauan terakhir. Total: *${percentChangeFromStart.toFixed(2)}%* dari awal)\n`;
-                notifMsg += `Chart: \`https://dexscreener.com/${job.chain}/${job.pairAddress}\``;
+      const pairData = response.data.pair;
 
-                if (client.info) {
-                    await client.sendMessage(job.chatId, notifMsg);
-                } else {
-                    console.log('Client belum siap, notif ditunda.');
-                }
-                
-                // 5. Update database biar ga spam
-                pantauJobs[tokenAddress].lastAlertedMcap = currentMcap;
-                saveDB(); 
-            }
-        } catch (jobError) {
-            // Kalo 1 job error (mungkin 404 krn pair-nya mati), log, tapi lanjut ke job berikutnya
-            console.error(`[Pantau Engine] Gagal memproses job ${tokenAddress}:`, jobError.message);
+      const currentMcap = parseFloat(pairData.marketCap);
+      const currentPriceUsd = parseFloat(pairData.priceUsd);
+
+      if (!currentMcap || isNaN(currentMcap) || isNaN(currentPriceUsd)) {
+        console.warn(
+          `[Pantau Engine] Data MCap/Harga tidak valid untuk ${job.tokenSymbol}. Skipping.`
+        );
+        continue;
+      }
+
+      // 3. Cek selisih dari MCap terakhir
+      const mcapDifference = currentMcap - job.lastAlertedMcap;
+
+      // 4. Cek apakah selisih (absolut) >= 10% (stepSize)
+      if (Math.abs(mcapDifference) >= job.stepSize) {
+        // --- WAKTUNYA NOTIFIKASI! ---
+        const trend = mcapDifference > 0 ? 'ðŸŸ¢ NAIK' : 'ðŸ”´ TURUN';
+
+        const percentChangeFromStart =
+          ((currentPriceUsd - job.startPriceUsd) / job.startPriceUsd) * 100;
+
+        let notifMsg = `ðŸ’¦ *HARGA* ${job.tokenSymbol} ${trend} ðŸ’¦\n\n`;
+        notifMsg += `Harga: *$${currentPriceUsd}*\n`;
+        notifMsg += `MCap: *$${currentMcap.toLocaleString('en-US')}*\n\n`;
+        notifMsg += `(Perubahan >10% dari pantauan terakhir. Total: *${percentChangeFromStart.toFixed(
+          2
+        )}%* dari awal)\n`;
+        notifMsg += `Chart: \`https://dexscreener.com/${job.chain}/${job.pairAddress}\``;
+
+        if (client.info) {
+          await client.sendMessage(job.chatId, notifMsg);
+        } else {
+          console.log('Client belum siap, notif ditunda.');
         }
+
+        // 5. Update database biar ga spam
+        pantauJobs[tokenAddress].lastAlertedMcap = currentMcap;
+        saveDB();
+      }
+    } catch (jobError) {
+      // Kalo 1 job error (mungkin 404 krn pair-nya mati), log, tapi lanjut ke job berikutnya
+      console.error(
+        `[Pantau Engine] Gagal memproses job ${tokenAddress}:`,
+        jobError.message
+      );
     }
+  }
 }
 
 // Fungsi yg ngejalanin "Mesin"-nya
 function startPantauEngine() {
-    console.log('Mesin Pemantau (Polling Engine) dinyalakan.');
-    console.log(`Akan mengecek harga setiap ${PANTAU_INTERVAL / 1000} detik.`);
-    
-    // Jalanin 'checkAlerts' sekali di awal
-    checkAlerts(); 
-    
-    // Terus jalanin tiap 20 detik
-    setInterval(checkAlerts, PANTAU_INTERVAL);
+  console.log('Mesin Pemantau (Polling Engine) dinyalakan.');
+  console.log(`Akan mengecek harga setiap ${PANTAU_INTERVAL / 1000} detik.`);
+
+  // Jalanin 'checkAlerts' sekali di awal
+  checkAlerts();
+
+  // Terus jalanin tiap 20 detik
+  setInterval(checkAlerts, PANTAU_INTERVAL);
 }
 // --- (AKHIR MESIN PEMANTAU) ---
-
 
 // Mulai koneksi
 client.initialize();
