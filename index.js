@@ -1,4 +1,4 @@
-// index.js (Versi Rombakan Final)
+// index.js (Versi Rombakan Final + Gemini)
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
@@ -14,7 +14,15 @@ const {
   handleList,
 } = require('./commands/priceAlert');
 const { handleConversion } = require('./commands/converter');
-const { handleMetaInfo } = require('./commands/metaInfo'); // <-- BARU
+const { handleMetaInfo } = require('./commands/metaInfo');
+// --- (INI DIA TAMBAHAN PENTING) ---
+const {
+  isUserInGeminiSession,
+  handleStartGemini,
+  handleStopGemini,
+  handleGeminiSession,
+} = require('./commands/geminiChat');
+// --- (AKHIR TAMBAHAN) ---
 
 console.log('Mencoba menjalankan bot...');
 
@@ -38,14 +46,37 @@ client.on('ready', () => {
   startPantauEngine(client); // Kirim instance client ke engine
 });
 
-// --- LISTENER UTAMA (Jadi Koordinator) ---
+// --- LISTENER UTAMA (Versi Update Gemini) ---
 client.on('message', async (message) => {
   if (!message.body || !message.from) return;
 
+  // --- (LOGIKA BARU GEMINI) ---
+  // CEK 1: Apakah user ini lagi di sesi Gemini?
+  if (isUserInGeminiSession(message.from)) {
+    // CEK 1a: Apakah dia mau udahan?
+    if (message.body === '!stopmetagpt') {
+      handleStopGemini(message);
+
+      // CEK 1b: Apakah dia nyoba pake perintah lain pas lagi sesi?
+    } else if (message.body.startsWith('!') || message.body.startsWith('#')) {
+      message.reply(
+        'Lu lagi di dalem sesi Gemini. Kalo mau pake perintah lain, ketik `!stopmetagpt` dulu ya.'
+      );
+
+      // CEK 1c: Kalo bukan, berarti ini chat biasa
+    } else {
+      handleGeminiSession(message); // Lanjutin obrolan
+    }
+
+    return; // PENTING: Stop eksekusi di sini, jangan lanjut ke !cek dll.
+  }
+  // --- (AKHIR LOGIKA BARU GEMINI) ---
+
+  // Kalo user GAK lagi di sesi, baru cek perintah biasa:
+  console.log(`[PESAN MASUK] Dari: ${message.from} | Isi: ${message.body}`);
   const chat = await message.getChat();
 
   // Cek dulu ini perintah konversi bukan (karena formatnya unik)
-  // Pastikan hanya berjalan jika di grup (sesuai logika sebelumnya)
   if (
     message.body.startsWith('!') &&
     !isNaN(parseFloat(message.body.substring(1).split(' ')[0]))
@@ -53,14 +84,18 @@ client.on('message', async (message) => {
     if (chat.isGroup) {
       handleConversion(message, client);
     } else {
-      // Mungkin balas kalau konversi hanya di grup? Atau biarkan saja.
+      // Biarkan saja, atau bisa tambahkan handleConversion untuk PM juga
     }
     return; // Hentikan proses jika ini perintah konversi
   }
 
-  // Logika perintah lain (hanya jalan di grup)
+  // Logika perintah lain
   if (chat.isGroup) {
-    if (message.body.startsWith('#')) {
+    // --- (TAMBAHAN PERINTAH GEMINI) ---
+    if (message.body === '!metagpt') {
+      handleStartGemini(message);
+      // --- (AKHIR TAMBAHAN) ---
+    } else if (message.body.startsWith('#')) {
       handleTagging(message, client);
     } else if (message.body.startsWith('!cek ')) {
       handlePriceCheck(message, client);
@@ -73,13 +108,17 @@ client.on('message', async (message) => {
     } else if (message.body === '!list') {
       handleList(message, client);
     } else if (message.body === '!meta') {
-      // --- (BARU) ---
       handleMetaInfo(message, client);
     }
     // Tambah 'else if' lain untuk perintah grup baru di sini
   } else {
     // Logika PM
-    if (message.body === '!ping') {
+
+    // --- (TAMBAHAN PERINTAH GEMINI DI PM) ---
+    if (message.body === '!metagpt') {
+      handleStartGemini(message);
+      // --- (AKHIR TAMBAHAN) ---
+    } else if (message.body === '!ping') {
       message.reply('Pong!');
     }
     // Tambah perintah PM lain di sini kalo perlu
