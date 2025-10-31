@@ -1,4 +1,6 @@
 // index.js (Versi Rombakan Final + Gemini)
+require('dotenv').config(); // Ini WAJIB di paling atas
+
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 

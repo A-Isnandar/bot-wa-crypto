@@ -3,7 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { formatGeminiResponse } = require('../utils/geminiFormatter');
 
 // !!! PENTING: PASTIIN API KEY LU UDAH BENER DI SINI !!!
-const API_KEY = 'AIzaSyA54Vkc96jZ8yIWzWqEPQfFYJz_G2zKoVM'; // <--- KEY LU
+const API_KEY = process.env.GEMINI_API_KEY; // <--- API KEY
 // !!! ----------------------------- !!!
 
 // Cek ke placeholder, BUKAN ke key asli
