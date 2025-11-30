@@ -18,6 +18,7 @@ const {
 const { handleConversion } = require('./commands/converter');
 const { handleMetaInfo } = require('./commands/metaInfo');
 // --- (INI DIA TAMBAHAN PENTING) ---
+const { handleAudit } = require('./commands/audit'); // <--- TAMBAHIN INI
 const {
   isUserInGeminiSession,
   handleStartGemini,
@@ -111,6 +112,8 @@ client.on('message', async (message) => {
       handleList(message, client);
     } else if (message.body === '!meta') {
       handleMetaInfo(message, client);
+    } else if (message.body.startsWith('!audit ') || message.body.startsWith('!rugcheck ')) {
+        handleAudit(message, client);
     }
     // Tambah 'else if' lain untuk perintah grup baru di sini
   } else {
