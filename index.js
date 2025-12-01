@@ -1,12 +1,11 @@
-// index.js (Versi Rombakan Final + Gemini)
-require('dotenv').config(); // Ini WAJIB di paling atas
-
+// index.js (Final Routing Fix + Audit + Trading)
+require('dotenv').config();
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
 // Import modul-modul kita
 const db = require('./utils/db');
-const { startPantauEngine } = require('./core/monitoringEngine'); // Path ke engine
+const { startPantauEngine } = require('./core/monitoringEngine');
 const { handleTagging } = require('./commands/tagging');
 const { handlePriceCheck } = require('./commands/cryptoPrice');
 const {
@@ -17,23 +16,26 @@ const {
 } = require('./commands/priceAlert');
 const { handleConversion } = require('./commands/converter');
 const { handleMetaInfo } = require('./commands/metaInfo');
-// --- (INI DIA TAMBAHAN PENTING) ---
-const { handleAudit } = require('./commands/audit'); // <--- TAMBAHIN INI
+const { handleAudit } = require('./commands/audit'); // <--- Audit tetap ada
 const {
   isUserInGeminiSession,
   handleStartGemini,
   handleStopGemini,
   handleGeminiSession,
 } = require('./commands/geminiChat');
-// --- (AKHIR TAMBAHAN) ---
+// Import Handler Trading Baru
+const {
+  handleWallet,
+  handleBuy,
+  handleBalance,
+  handleSell,
+} = require('./commands/trading');
 
 console.log('Mencoba menjalankan bot...');
 
 const client = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: {
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  },
+  puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox'] },
 });
 
 client.on('qr', (qr) => {
@@ -43,92 +45,83 @@ client.on('qr', (qr) => {
 
 client.on('ready', () => {
   console.log('Bot sudah online dan siap tempur!');
-
-  // Load database & Nyalain Mesin (pass client ke engine)
   db.loadDB();
-  startPantauEngine(client); // Kirim instance client ke engine
+  startPantauEngine(client);
 });
 
-// --- LISTENER UTAMA (Versi Update Gemini) ---
+// --- LISTENER UTAMA ---
 client.on('message', async (message) => {
   if (!message.body || !message.from) return;
 
-  // --- (LOGIKA BARU GEMINI) ---
-  // CEK 1: Apakah user ini lagi di sesi Gemini?
+  // 1. CEK SESI GEMINI (Prioritas Utama)
   if (isUserInGeminiSession(message.from)) {
-    // CEK 1a: Apakah dia mau udahan?
     if (message.body === '!stopmetagpt') {
       handleStopGemini(message);
-
-      // CEK 1b: Apakah dia nyoba pake perintah lain pas lagi sesi?
     } else if (message.body.startsWith('!') || message.body.startsWith('#')) {
       message.reply(
-        'Lu lagi di dalem sesi Gemini. Kalo mau pake perintah lain, ketik `!stopmetagpt` dulu ya.'
+        'Lu lagi sesi MetaGPT. Ketik `!stopmetagpt` dulu buat pake perintah lain.'
       );
-
-      // CEK 1c: Kalo bukan, berarti ini chat biasa
     } else {
-      handleGeminiSession(message); // Lanjutin obrolan
+      handleGeminiSession(message);
     }
-
-    return; // PENTING: Stop eksekusi di sini, jangan lanjut ke !cek dll.
+    return;
   }
-  // --- (AKHIR LOGIKA BARU GEMINI) ---
 
-  // Kalo user GAK lagi di sesi, baru cek perintah biasa:
-  console.log(`[PESAN MASUK] Dari: ${message.from} | Isi: ${message.body}`);
   const chat = await message.getChat();
 
-  // Cek dulu ini perintah konversi bukan (karena formatnya unik)
+  // 2. CEK KONVERSI (Bisa di Grup & PM)
   if (
     message.body.startsWith('!') &&
     !isNaN(parseFloat(message.body.substring(1).split(' ')[0]))
   ) {
-    if (chat.isGroup) {
-      handleConversion(message, client);
-    } else {
-      // Biarkan saja, atau bisa tambahkan handleConversion untuk PM juga
-    }
-    return; // Hentikan proses jika ini perintah konversi
+    handleConversion(message, client);
+    return;
   }
 
-  // Logika perintah lain
+  // 3. ROUTING BERDASARKAN TIPE CHAT
   if (chat.isGroup) {
-    // --- (TAMBAHAN PERINTAH GEMINI) ---
-    if (message.body === '!metagpt') {
-      handleStartGemini(message);
-      // --- (AKHIR TAMBAHAN) ---
-    } else if (message.body.startsWith('#')) {
-      handleTagging(message, client);
-    } else if (message.body.startsWith('!cek ')) {
+    // === PERINTAH KHUSUS GRUP ===
+    if (message.body === '!metagpt') handleStartGemini(message);
+    else if (message.body.startsWith('#')) handleTagging(message, client);
+    else if (message.body.startsWith('!cek '))
       handlePriceCheck(message, client);
-    } else if (message.body.startsWith('!pantau ')) {
-      handlePantau(message, client);
-    } else if (message.body.startsWith('!stop ')) {
-      handleStop(message, client);
-    } else if (message.body === '!stopall') {
-      handleStopAll(message, client);
-    } else if (message.body === '!list') {
-      handleList(message, client);
-    } else if (message.body === '!meta') {
-      handleMetaInfo(message, client);
-    } else if (message.body.startsWith('!audit ') || message.body.startsWith('!rugcheck ')) {
-        handleAudit(message, client);
+    else if (message.body.startsWith('!pantau ')) handlePantau(message, client);
+    else if (message.body.startsWith('!stop ')) handleStop(message, client);
+    else if (message.body === '!stopall') handleStopAll(message, client);
+    else if (message.body === '!list') handleList(message, client);
+    else if (message.body === '!meta') handleMetaInfo(message, client);
+    else if (
+      message.body.startsWith('!audit ') ||
+      message.body.startsWith('!rugcheck ')
+    ) {
+      handleAudit(message, client);
     }
-    // Tambah 'else if' lain untuk perintah grup baru di sini
+
+    // !wallet di grup sekarang cuma manggil fungsi (yang akan nolak secara halus)
+    else if (message.body === '!wallet') {
+      handleWallet(message);
+    }
+
+    // Block perintah trading di grup
+    else if (
+      message.body.startsWith('!buy ') ||
+      message.body.startsWith('!sell ') ||
+      message.body === '!balance'
+    ) {
+      message.reply('⚠️ Fitur trading cuma bisa lewat PM (Japri) ke bot ini.');
+    }
   } else {
-    // Logika PM
+    // === PERINTAH KHUSUS PM (PRIVATE MESSAGE) ===
 
-    // --- (TAMBAHAN PERINTAH GEMINI DI PM) ---
-    if (message.body === '!metagpt') {
-      handleStartGemini(message);
-      // --- (AKHIR TAMBAHAN) ---
-    } else if (message.body === '!ping') {
-      message.reply('Pong!');
-    }
-    // Tambah perintah PM lain di sini kalo perlu
+    if (message.body === '!metagpt') handleStartGemini(message);
+    else if (message.body === '!ping') message.reply('Pong!');
+    // FITUR TRADING (FULL ACCESS DI PM)
+    // Sekarang handler-nya udah pinter, gak perlu logika aneh2 di sini
+    else if (message.body === '!wallet') handleWallet(message);
+    else if (message.body === '!balance') handleBalance(message);
+    else if (message.body.startsWith('!buy ')) handleBuy(message);
+    else if (message.body.startsWith('!sell ')) handleSell(message);
   }
-}); // --- AKHIR DARI LISTENER UTAMA ---
+});
 
-// Mulai koneksi
 client.initialize();

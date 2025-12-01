@@ -1,63 +1,78 @@
-// utils/db.js (Versi Final - Anti Reassign)
+// utils/db.js
 const fs = require('fs');
 
-const DB_FILE = './pantau_db.json'; 
+const DB_PANTAU_FILE = './pantau_db.json';
+const DB_USER_FILE = './users_db.json';
 
-// Objek ini HARUS dijaga referensinya
-const pantauJobs = {}; // Tetap pakai const, isinya yg kita ubah
+// Objek database (Reference dijaga tetap, isinya yang berubah)
+const pantauJobs = {};
+const userWallets = {};
 
-// Fungsi untuk mengosongkan object tanpa ganti referensi
+// --- FUNGSI BANTUAN (PENTING BUAT RESET) ---
 function clearObject(obj) {
-    for (const key in obj) {
-        if (Object.hasOwnProperty.call(obj, key)) {
-            delete obj[key];
-        }
+  for (const key in obj) {
+    if (Object.hasOwnProperty.call(obj, key)) {
+      delete obj[key];
     }
+  }
 }
 
 function loadDB() {
-    try {
-        if (fs.existsSync(DB_FILE)) {
-            const data = fs.readFileSync(DB_FILE);
-            const loadedData = JSON.parse(data);
-
-            // JANGAN REASSIGN! Kosongkan object yg ada, lalu salin propertinya
-            clearObject(pantauJobs); // Kosongkan dulu
-            Object.assign(pantauJobs, loadedData); // Salin properti dari data yg di-load
-
-            console.log('Database pemantau berhasil di-load ke object existing.');
-        } else {
-            // Kalo file ga ada, pastikan object kita kosong
-            clearObject(pantauJobs); 
-            console.log('Database pemantau baru dibuat (object dikosongkan).');
-        }
-    } catch (err) {
-        console.error('Gagal load DB pemantau:', err);
-        // Kalo error, pastikan object kita tetap kosong
-        clearObject(pantauJobs);
+  try {
+    // 1. Load Pantau DB
+    if (fs.existsSync(DB_PANTAU_FILE)) {
+      const data = fs.readFileSync(DB_PANTAU_FILE);
+      // Bersihin dulu sebelum diisi (biar bersih)
+      clearObject(pantauJobs);
+      Object.assign(pantauJobs, JSON.parse(data));
+    } else {
+      console.log('File DB Pantau belum ada, memulai kosong.');
     }
+
+    // 2. Load User DB
+    if (fs.existsSync(DB_USER_FILE)) {
+      const userData = fs.readFileSync(DB_USER_FILE);
+      // Bersihin dulu sebelum diisi
+      clearObject(userWallets);
+      Object.assign(userWallets, JSON.parse(userData));
+    } else {
+      console.log('File DB User belum ada, memulai kosong.');
+    }
+
+    console.log('Semua Database berhasil di-load.');
+  } catch (err) {
+    console.error('Gagal load DB:', err);
+  }
 }
 
 function saveDB() {
-    try {
-        // Simpan object pantauJobs yang sekarang (yang referensinya sama di mana-mana)
-        fs.writeFileSync(DB_FILE, JSON.stringify(pantauJobs, null, 2));
-    } catch (err) {
-        console.error('Gagal simpen DB pemantau:', err);
-    }
+  try {
+    fs.writeFileSync(DB_PANTAU_FILE, JSON.stringify(pantauJobs, null, 2));
+  } catch (err) {
+    console.error('Gagal simpen DB Pantau:', err);
+  }
 }
 
-// Fungsi reset sekarang tinggal panggil clearObject
+function saveUserDB() {
+  try {
+    fs.writeFileSync(DB_USER_FILE, JSON.stringify(userWallets, null, 2));
+  } catch (err) {
+    console.error('Gagal simpen DB User:', err);
+  }
+}
+
+// Fungsi reset (Sekarang aman karena clearObject sudah ada)
 function resetPantauJobs() {
-    clearObject(pantauJobs); // Kosongkan object existing
-    saveDB(); // Simpan state kosong
-    console.log('Database pemantau telah direset.');
+  clearObject(pantauJobs); // Kosongkan isi object
+  saveDB(); // Simpan state kosong ke file
+  console.log('Database pemantau telah direset.');
 }
 
 module.exports = {
-    // Tetap export object pantauJobs (referensinya sekarang konsisten)
-    pantauJobs, 
-    loadDB,
-    saveDB,
-    resetPantauJobs 
+  pantauJobs,
+  userWallets,
+  loadDB,
+  saveDB,
+  saveUserDB,
+  resetPantauJobs,
 };
